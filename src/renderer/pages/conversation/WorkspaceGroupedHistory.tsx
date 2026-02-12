@@ -10,10 +10,11 @@ import FlexFullContainer from '@/renderer/components/FlexFullContainer';
 import { CronJobIndicator, useCronJobsMap } from '@/renderer/pages/cron';
 import { addEventListener, emitter } from '@/renderer/utils/emitter';
 import { getActivityTime, getTimelineLabel } from '@/renderer/utils/timeline';
+import { iconColors } from '@/renderer/theme/colors';
 import { getWorkspaceDisplayName } from '@/renderer/utils/workspace';
 import { getWorkspaceUpdateTime } from '@/renderer/utils/workspaceHistory';
-import { Empty, Popconfirm, Input, Tooltip } from '@arco-design/web-react';
-import { DeleteOne, MessageOne, EditOne } from '@icon-park/react';
+import { Button, Checkbox, Empty, Input, Message, Modal, Popconfirm, Tooltip } from '@arco-design/web-react';
+import { Close, DeleteOne, MessageOne, EditOne, SettingTwo } from '@icon-park/react';
 import classNames from 'classnames';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -147,6 +148,23 @@ const groupConversationsByTimelineAndWorkspace = (conversations: TChatConversati
 
 const EXPANSION_STORAGE_KEY = 'aionui_workspace_expansion';
 
+// Reserved height for the batch mode bottom panel (padding, text, buttons)
+const BATCH_PANEL_RESERVED_HEIGHT = 96;
+
+/**
+ * Compute range selection between an anchor and a target within an ordered list.
+ * Returns the slice of IDs from anchor to target (inclusive), or null if either is missing.
+ */
+const computeRangeSelection = (order: string[], anchorId: string | null, targetId: string): string[] | null => {
+  const anchor = anchorId || targetId;
+  const anchorIndex = order.indexOf(anchor);
+  const currentIndex = order.indexOf(targetId);
+  if (anchorIndex === -1 || currentIndex === -1) return null;
+  const start = Math.min(anchorIndex, currentIndex);
+  const end = Math.max(anchorIndex, currentIndex);
+  return order.slice(start, end + 1);
+};
+
 const WorkspaceGroupedHistory: React.FC<{ onSessionClick?: () => void; collapsed?: boolean }> = ({ onSessionClick, collapsed = false }) => {
   const [conversations, setConversations] = useState<TChatConversation[]>([]);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<string[]>(() => {
@@ -164,6 +182,11 @@ const WorkspaceGroupedHistory: React.FC<{ onSessionClick?: () => void; collapsed
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<string>('');
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedConversationIds, setSelectedConversationIds] = useState<string[]>([]);
+  const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null);
+  const [batchDeleteModalVisible, setBatchDeleteModalVisible] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
   const { id } = useParams();
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -217,6 +240,36 @@ const WorkspaceGroupedHistory: React.FC<{ onSessionClick?: () => void; collapsed
   const timelineSections = useMemo(() => {
     return groupConversationsByTimelineAndWorkspace(conversations, t);
   }, [conversations, t]);
+
+  const allConversationIds = useMemo(() => conversations.map((item) => item.id), [conversations]);
+  const selectedConversationIdSet = useMemo(() => new Set(selectedConversationIds), [selectedConversationIds]);
+  const hasSelection = selectedConversationIdSet.size > 0;
+  const selectedConversations = useMemo(() => {
+    if (!hasSelection) return [];
+    return conversations.filter((conv) => selectedConversationIdSet.has(conv.id));
+  }, [conversations, hasSelection, selectedConversationIdSet]);
+  const visibleConversationOrder = useMemo(() => {
+    const ids: string[] = [];
+    timelineSections.forEach((section) => {
+      section.items.forEach((item) => {
+        if (item.type === 'workspace' && item.workspaceGroup) {
+          if (!expandedWorkspaces.includes(item.workspaceGroup.workspace)) return;
+          item.workspaceGroup.conversations.forEach((conv) => ids.push(conv.id));
+          return;
+        }
+        if (item.type === 'conversation' && item.conversation) {
+          ids.push(item.conversation.id);
+        }
+      });
+    });
+    return ids;
+  }, [timelineSections, expandedWorkspaces]);
+
+  useEffect(() => {
+    if (!batchMode) return;
+    const allIdsSet = new Set(allConversationIds);
+    setSelectedConversationIds((prev) => prev.filter((convId) => allIdsSet.has(convId)));
+  }, [batchMode, allConversationIds]);
 
   // 默认展开所有 workspace（仅在还未记录展开状态时执行一次）
   useEffect(() => {
@@ -347,28 +400,173 @@ const WorkspaceGroupedHistory: React.FC<{ onSessionClick?: () => void; collapsed
     [handleEditSave, handleEditCancel]
   );
 
+  const handleToggleBatchMode = useCallback(() => {
+    setBatchMode((prev) => {
+      const next = !prev;
+      if (next) {
+        setEditingId(null);
+        setEditingName('');
+      } else {
+        setSelectedConversationIds([]);
+        setSelectionAnchorId(null);
+        setBatchDeleteModalVisible(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleToggleConversationSelection = useCallback((conversationId: string) => {
+    setSelectedConversationIds((prev) => {
+      if (prev.includes(conversationId)) {
+        return prev.filter((idItem) => idItem !== conversationId);
+      }
+      return [...prev, conversationId];
+    });
+    setSelectionAnchorId(conversationId);
+  }, []);
+
+  const handleConversationRowClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>, conversation: TChatConversation) => {
+      const isMultiSelectGesture = event.ctrlKey || event.metaKey;
+      const isRangeSelectGesture = event.shiftKey;
+
+      const openBatchModeIfNeeded = () => {
+        if (!batchMode) {
+          setBatchMode(true);
+          setEditingId(null);
+          setEditingName('');
+        }
+      };
+
+      if (isRangeSelectGesture) {
+        openBatchModeIfNeeded();
+        const order = visibleConversationOrder.length > 0 ? visibleConversationOrder : allConversationIds;
+        const rangeIds = computeRangeSelection(order, selectionAnchorId, conversation.id);
+
+        if (!rangeIds) {
+          setSelectedConversationIds([conversation.id]);
+          setSelectionAnchorId(conversation.id);
+          return;
+        }
+
+        setSelectedConversationIds((prev) => {
+          if (isMultiSelectGesture) {
+            return Array.from(new Set([...prev, ...rangeIds]));
+          }
+          return rangeIds;
+        });
+        if (!selectionAnchorId) {
+          setSelectionAnchorId(conversation.id);
+        }
+        return;
+      }
+
+      if (isMultiSelectGesture) {
+        openBatchModeIfNeeded();
+        handleToggleConversationSelection(conversation.id);
+        return;
+      }
+
+      handleConversationClick(conversation);
+    },
+    [batchMode, visibleConversationOrder, allConversationIds, selectionAnchorId, handleToggleConversationSelection, handleConversationClick]
+  );
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedConversationIds(allConversationIds);
+    setSelectionAnchorId(allConversationIds[0] || null);
+  }, [allConversationIds]);
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedConversationIds([]);
+    setSelectionAnchorId(null);
+  }, []);
+
+  const handleBatchDelete = useCallback(async () => {
+    if (!hasSelection) return;
+    try {
+      setBatchDeleting(true);
+      const { successIds, failedIds } = await ipcBridge.conversation.removeBatch.invoke({ ids: selectedConversationIds });
+
+      successIds.forEach((conversationId) => emitter.emit('conversation.deleted', conversationId));
+
+      if (successIds.length > 0) {
+        emitter.emit('chat.history.refresh');
+      }
+      if (id && successIds.includes(id)) {
+        void navigate('/');
+      }
+
+      if (failedIds.length > 0) {
+        Message.warning(t('conversation.history.batchDeletePartial', { success: successIds.length, failed: failedIds.length }));
+      } else if (successIds.length > 0) {
+        Message.success(t('conversation.history.batchDeleteSuccess', { count: successIds.length }));
+      }
+
+      setSelectedConversationIds([]);
+      setSelectionAnchorId(null);
+      setBatchDeleteModalVisible(false);
+      setBatchMode(false);
+    } catch (error) {
+      console.error('[WorkspaceGroupedHistory] Failed to batch delete conversations:', error);
+      Message.error(t('conversation.history.batchDeleteFailed'));
+      setBatchDeleteModalVisible(false);
+    } finally {
+      setBatchDeleting(false);
+    }
+  }, [hasSelection, selectedConversationIds, id, navigate, t]);
+
   const renderConversation = useCallback(
     (conversation: TChatConversation) => {
       const isSelected = id === conversation.id;
       const isEditing = editingId === conversation.id;
       const cronStatus = getJobStatus(conversation.id);
+      const isChecked = selectedConversationIdSet.has(conversation.id);
+      const isItemActive = isSelected || (batchMode && isChecked);
 
       return (
         <Tooltip key={conversation.id} disabled={!collapsed} content={conversation.name || t('conversation.welcome.newConversation')} position='right'>
           <div
             id={'c-' + conversation.id}
             className={classNames('chat-history__item hover:bg-hover px-12px py-8px rd-8px flex justify-start items-center group cursor-pointer relative overflow-hidden shrink-0 conversation-item [&.conversation-item+&.conversation-item]:mt-2px min-w-0', {
-              '!bg-active': isSelected,
+              '!bg-active': isItemActive,
             })}
-            onClick={() => handleConversationClick(conversation)}
+            onClick={(event) => {
+              handleConversationRowClick(event, conversation);
+            }}
           >
+            {batchMode && (
+              <span
+                className='mr-6px flex-shrink-0'
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (event.shiftKey) {
+                    const order = visibleConversationOrder.length > 0 ? visibleConversationOrder : allConversationIds;
+                    const rangeIds = computeRangeSelection(order, selectionAnchorId, conversation.id);
+                    if (!rangeIds) {
+                      setSelectedConversationIds([conversation.id]);
+                      setSelectionAnchorId(conversation.id);
+                      return;
+                    }
+                    setSelectedConversationIds(rangeIds);
+                    if (!selectionAnchorId) {
+                      setSelectionAnchorId(conversation.id);
+                    }
+                    return;
+                  }
+                  handleToggleConversationSelection(conversation.id);
+                }}
+              >
+                <Checkbox checked={isChecked} onChange={() => {}} />
+              </span>
+            )}
             {cronStatus !== 'none' ? <CronJobIndicator status={cronStatus} size={20} className='flex-shrink-0' /> : <MessageOne theme='outline' size='20' className='line-height-0 flex-shrink-0' />}
             <FlexFullContainer className='h-24px min-w-0 flex-1 collapsed-hidden ml-10px'>{isEditing ? <Input className='chat-history__item-editor text-14px lh-24px h-24px w-full' value={editingName} onChange={setEditingName} onKeyDown={handleEditKeyDown} onBlur={handleEditSave} autoFocus size='small' /> : <div className='chat-history__item-name overflow-hidden text-ellipsis inline-block flex-1 text-14px lh-24px whitespace-nowrap min-w-0'>{conversation.name}</div>}</FlexFullContainer>
-            {!isEditing && (
+            {!isEditing && !batchMode && (
               <div
                 className={classNames('absolute right-0px top-0px h-full w-70px items-center justify-end hidden group-hover:flex !collapsed-hidden pr-12px')}
                 style={{
-                  backgroundImage: isSelected ? `linear-gradient(to right, transparent, var(--aou-2) 50%)` : `linear-gradient(to right, transparent, var(--aou-1) 50%)`,
+                  backgroundImage: isItemActive ? `linear-gradient(to right, transparent, var(--aou-2) 50%)` : `linear-gradient(to right, transparent, var(--aou-1) 50%)`,
                 }}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -411,7 +609,7 @@ const WorkspaceGroupedHistory: React.FC<{ onSessionClick?: () => void; collapsed
         </Tooltip>
       );
     },
-    [id, collapsed, editingId, editingName, t, handleConversationClick, handleEditStart, handleEditKeyDown, handleEditSave, handleRemoveConversation, getJobStatus]
+    [id, collapsed, editingId, editingName, t, batchMode, selectedConversationIdSet, visibleConversationOrder, allConversationIds, selectionAnchorId, handleConversationRowClick, handleToggleConversationSelection, handleEditStart, handleEditKeyDown, handleEditSave, handleRemoveConversation, getJobStatus]
   );
 
   // 如果没有任何会话，显示空状态
@@ -427,11 +625,29 @@ const WorkspaceGroupedHistory: React.FC<{ onSessionClick?: () => void; collapsed
 
   return (
     <FlexFullContainer>
-      <div className='size-full overflow-y-auto overflow-x-hidden'>
-        {timelineSections.map((section) => (
+      <div
+        className='size-full overflow-y-auto overflow-x-hidden'
+        style={{
+          paddingBottom: batchMode && !collapsed ? BATCH_PANEL_RESERVED_HEIGHT : undefined,
+        }}
+      >
+        {timelineSections.map((section, sectionIndex) => (
           <div key={section.timeline} className='mb-8px min-w-0'>
             {/* 时间线标题 */}
-            {!collapsed && <div className='chat-history__section px-12px py-8px text-13px text-t-secondary font-bold'>{section.timeline}</div>}
+            {!collapsed && (
+              <div className='chat-history__section group px-12px py-8px text-13px text-t-secondary font-bold flex items-center justify-between gap-8px relative'>
+                <span className='pr-28px'>{section.timeline}</span>
+                {sectionIndex === 0 && !batchMode && (
+                  <div className='absolute right-12px top-50% -translate-y-50% opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto'>
+                    <Tooltip content={t('conversation.history.batchManageTooltip')} position='left'>
+                      <Button type='text' size='mini' className='!w-28px !h-28px !min-w-28px !p-0 !rd-50% flex-center hover:bg-hover' onClick={handleToggleBatchMode}>
+                        <SettingTwo theme='outline' size='16' className='flex' />
+                      </Button>
+                    </Tooltip>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* 按时间统一排序渲染所有项目（workspace 分组和独立会话混合） */}
             {section.items.map((item) => {
@@ -461,6 +677,58 @@ const WorkspaceGroupedHistory: React.FC<{ onSessionClick?: () => void; collapsed
           </div>
         ))}
       </div>
+      {batchMode && !collapsed && (
+        <div className='batch-panel absolute left-8px right-8px bottom-8px px-12px py-10px rd-10px border border-color-secondary bg-dialog-fill-0'>
+          <div className='flex items-center justify-between gap-8px mb-8px'>
+            <div className='text-14px lh-20px text-t-primary font-medium'>{t('conversation.history.batchManageTitle')}</div>
+            <Button type='text' size='mini' className='!w-28px !h-28px !min-w-28px !p-0 !rd-50% inline-flex items-center justify-center hover:bg-hover' onClick={handleToggleBatchMode} aria-label={t('conversation.history.batchDone')}>
+              <Close theme='outline' size={16} fill={iconColors.secondary} className='flex' />
+            </Button>
+          </div>
+          <div className='text-12px lh-18px text-t-secondary mb-4px'>{t('conversation.history.batchSelected', { count: selectedConversationIds.length })}</div>
+          <div className='text-11px lh-16px text-t-tertiary mb-8px'>{t('conversation.history.batchModeHint')}</div>
+          <div className='grid grid-cols-2 gap-6px'>
+            <Button type='secondary' size='small' className='!rd-100px' onClick={selectedConversationIdSet.size === allConversationIds.length ? handleClearSelection : handleSelectAll}>
+              {selectedConversationIdSet.size === allConversationIds.length ? t('conversation.history.clearSelection') : t('conversation.history.selectAll')}
+            </Button>
+            <Button type='primary' size='small' status='danger' className='!rd-100px' disabled={!hasSelection} onClick={() => setBatchDeleteModalVisible(true)}>
+              {t('conversation.history.batchDelete')}
+            </Button>
+          </div>
+        </div>
+      )}
+      <Modal
+        visible={batchDeleteModalVisible}
+        title={t('conversation.history.batchDeleteTitle')}
+        className='batch-delete-modal w-[90vw] md:w-[560px]'
+        onCancel={() => {
+          if (batchDeleting) return;
+          setBatchDeleteModalVisible(false);
+        }}
+        footer={
+          <div className='flex justify-end gap-12px'>
+            <Button type='secondary' size='large' onClick={() => setBatchDeleteModalVisible(false)} disabled={batchDeleting}>
+              {t('common.cancel')}
+            </Button>
+            <Button type='outline' status='danger' size='large' onClick={() => void handleBatchDelete()} loading={batchDeleting} disabled={!hasSelection}>
+              {t('common.delete')}
+            </Button>
+          </div>
+        }
+        style={{ borderRadius: '12px' }}
+        alignCenter
+        getPopupContainer={() => document.body}
+      >
+        <div className='text-14px lh-22px text-t-secondary mb-10px'>{t('conversation.history.batchDeleteModalDesc', { count: selectedConversations.length })}</div>
+        <div className='max-h-220px overflow-y-auto rd-8px border border-color-secondary bg-fill-0 px-12px py-10px'>
+          {selectedConversations.slice(0, 10).map((conv) => (
+            <div key={conv.id} className='text-14px lh-24px text-t-primary truncate'>
+              • {conv.name || t('conversation.welcome.newConversation')}
+            </div>
+          ))}
+          {selectedConversations.length > 10 && <div className='text-12px lh-20px text-t-secondary mt-6px'>{t('conversation.history.batchDeleteMore', { count: selectedConversations.length - 10 })}</div>}
+        </div>
+      </Modal>
     </FlexFullContainer>
   );
 };
