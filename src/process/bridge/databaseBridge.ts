@@ -12,7 +12,7 @@ import { migrateConversationToDatabase } from './migrationUtils';
 
 export function initDatabaseBridge(): void {
   // Get conversation messages from database
-  ipcBridge.database.getConversationMessages.provider(({ conversation_id, page = 0, pageSize = 10000 }) => {
+  ipcBridge.database.getConversationMessages.provider(({ conversation_id, page = 0, pageSize = 50 }) => {
     try {
       const db = getDatabase();
       const result = db.getConversationMessages(conversation_id, page, pageSize);
@@ -24,7 +24,7 @@ export function initDatabaseBridge(): void {
   });
 
   // Get user conversations from database with lazy migration from file storage
-  ipcBridge.database.getUserConversations.provider(async ({ page = 0, pageSize = 10000 }) => {
+  ipcBridge.database.getUserConversations.provider(async ({ page = 0, pageSize = 50 }) => {
     try {
       const db = getDatabase();
       const result = db.getUserConversations(undefined, page, pageSize);

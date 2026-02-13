@@ -266,6 +266,9 @@ export function initConversationBridge(): void {
         return false;
       }
 
+      // 清理对话相关的 Worker 任务和缓存，防止内存泄漏
+      WorkerManage.cleanupConversation(id);
+
       return true;
     } catch (error) {
       console.error('[conversationBridge] Failed to remove conversation:', error);

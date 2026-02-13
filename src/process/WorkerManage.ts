@@ -165,6 +165,36 @@ const kill = (id: string) => {
   taskList.splice(index, 1);
 };
 
+/**
+ * 清理对话相关的所有资源
+ * 在对话关闭或删除时调用，防止内存泄漏
+ *
+ * @param conversationId - 对话 ID
+ */
+const cleanupConversation = (conversationId: string) => {
+  console.log(`[WorkerManage] Cleaning up resources for conversation: ${conversationId}`);
+
+  // 1. 清理 Worker 任务
+  kill(conversationId);
+
+  // 2. 清理消息管理缓存（如果存在）
+  // 通过访问 message.ts 的 Cache 来清理
+  try {
+    // 动态导入以避免循环依赖
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { ConversationManageWithDB } = require('./message');
+    const cache = (ConversationManageWithDB as any).Cache;
+    if (cache && cache.has(conversationId)) {
+      cache.delete(conversationId);
+      console.log(`[WorkerManage] Cleaned up message cache for conversation: ${conversationId}`);
+    }
+  } catch (error) {
+    console.warn(`[WorkerManage] Failed to cleanup message cache:`, error);
+  }
+
+  console.log(`[WorkerManage] Cleanup completed for conversation: ${conversationId}`);
+};
+
 const clear = () => {
   taskList.forEach((item) => {
     item.task.kill();
@@ -193,6 +223,7 @@ const WorkerManage = {
   listTasks,
   kill,
   clear,
+  cleanupConversation,
 };
 
 export default WorkerManage;

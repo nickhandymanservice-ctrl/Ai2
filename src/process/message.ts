@@ -9,6 +9,7 @@ import { composeMessage } from '@/common/chatLib';
 import type { AcpBackend } from '@/types/acpTypes';
 import { getDatabase } from './database/export';
 import { ProcessChat } from './initStorage';
+import { streamingBuffer } from './database/StreamingMessageBuffer';
 
 const Cache = new Map<string, ConversationManageWithDB>();
 
@@ -30,15 +31,25 @@ class ConversationManageWithDB {
     return manage;
   }
   sync(type: 'insert' | 'accumulate', message: TMessage) {
-    this.stack.push([type, message]);
-    clearTimeout(this.timer);
-    if (type === 'insert') {
-      this.save2DataBase();
+    // 对于 accumulate 类型，直接使用 StreamingMessageBuffer 进行批量更新
+    // 这可以显著减少数据库 I/O 操作（从每个 chunk 一次查询减少到每 300ms 或 20 个 chunk 一次）
+    if (type === 'accumulate') {
+      const msgId = message.msg_id || message.id;
+      // 只处理包含 content.content 属性的消息类型
+      let content = '';
+      if (message.type === 'text' || message.type === 'tips') {
+        content = message.content.content || '';
+      }
+      streamingBuffer.append(message.id, msgId, this.conversation_id, content, 'accumulate');
+      // 仍然保存到 stack，以便在需要时处理其他逻辑
+      this.stack.push([type, message]);
       return;
     }
-    this.timer = setTimeout(() => {
-      this.save2DataBase();
-    }, 2000);
+
+    // 对于 insert 类型，使用原有的批量处理机制
+    this.stack.push([type, message]);
+    clearTimeout(this.timer);
+    this.save2DataBase();
   }
 
   private save2DataBase() {
@@ -46,7 +57,7 @@ class ConversationManageWithDB {
       .then(() => {
         const stack = this.stack.slice();
         this.stack = [];
-        const messages = this.db.getConversationMessages(this.conversation_id, 0, 50, 'DESC'); //
+        const messages = this.db.getConversationMessages(this.conversation_id, 0, 50, 'DESC');
         let messageList = messages.data.reverse();
         let updateMessage = stack.shift();
         while (updateMessage) {
@@ -54,6 +65,7 @@ class ConversationManageWithDB {
             this.db.insertMessage(updateMessage[1]);
             messageList.push(updateMessage[1]);
           } else {
+            // accumulate 类型已经由 StreamingMessageBuffer 处理，这里只处理需要 compose 的情况
             messageList = composeMessage(updateMessage[1], messageList, (type, message) => {
               if (type === 'insert') this.db.insertMessage(message);
               if (type === 'update') {

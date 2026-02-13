@@ -191,7 +191,7 @@ export class AcpAgent {
 
       let connectTimeoutId: NodeJS.Timeout | null = null;
       const connectTimeoutPromise = new Promise<never>((_, reject) => {
-        connectTimeoutId = setTimeout(() => reject(new Error('Connection timeout after 70 seconds')), 70000);
+        connectTimeoutId = setTimeout(() => reject(new Error('Connection timeout after 30 seconds')), 30000);
       });
 
       const connectStart = Date.now();
@@ -233,7 +233,7 @@ export class AcpAgent {
             if (ACP_PERF_LOG) console.log(`[ACP-PERF] start: session mode set ${Date.now() - modeStart}ms`);
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            throw new Error(`[ACP] Failed to enable ${this.extra.backend} YOLO mode (${sessionMode}): ${errorMessage}`);
+            throw new Error(`[ACP] Failed to enable ${this.extra.backend.charAt(0).toUpperCase() + this.extra.backend.slice(1)} YOLO mode (${sessionMode}): ${errorMessage}`);
           }
         }
       }
@@ -739,7 +739,7 @@ export class AcpAgent {
           this.pendingPermissions.delete(requestId);
           reject(new Error('Permission request timed out'));
         }
-      }, 70000);
+      }, 30000);
     });
   }
 
@@ -1059,7 +1059,7 @@ export class AcpAgent {
 
       const loginProcess = spawn(command, args, {
         stdio: 'pipe', // 避免干扰用户界面
-        timeout: 70000,
+        timeout: 30000,
       });
 
       await new Promise<void>((resolve, reject) => {

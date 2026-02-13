@@ -96,21 +96,32 @@ export const generateHashWithFullName = (fullName: string): string => {
 };
 
 // 递归读取目录内容，返回树状结构
+
 export async function readDirectoryRecursive(
   dirPath: string,
+
   options?: {
     root?: string;
+
     abortController?: AbortController;
+
     fileService?: { shouldIgnoreFile(path: string): boolean };
+
     maxDepth?: number;
+
+    concurrency?: number; // 并发控制参数
+
     search?: {
       text: string;
+
       onProcess?(result: { file: number; dir: number; match?: IDirOrFile }): void;
+
       process?: { file: number; dir: number };
     };
   }
 ): Promise<IDirOrFile> {
-  const { root = dirPath, maxDepth = 1, fileService, search, abortController } = options || {};
+  const { root = dirPath, maxDepth = 1, fileService, search, abortController, concurrency = 10 } = options || {};
+
   const { text: searchText, onProcess: onSearchProcess = () => {}, process = { file: 0, dir: 1 } } = search || {};
 
   const matchSearch = searchText ? (fullPath: string) => fullPath.includes(searchText) : (_: string) => false;
@@ -120,79 +131,139 @@ export async function readDirectoryRecursive(
   };
 
   const stats = await fs.stat(dirPath);
+
   if (!stats.isDirectory()) {
     return null;
   }
+
   const result: IDirOrFile = {
     name: path.basename(dirPath),
+
     fullPath: dirPath,
+
     relativePath: path.relative(root, dirPath),
+
     isDir: true,
+
     isFile: false,
+
     children: [],
   };
+
   let searchResult = matchSearch(result.name);
+
   onSearchProcess({
     ...process,
+
     match: searchResult ? result : undefined,
   });
+
   if (maxDepth === 0 || searchResult) return result;
+
   checkStatus();
+
   const items = await fs.readdir(dirPath);
+
   checkStatus();
 
-  for (const item of items) {
-    checkStatus();
-    if (item === 'node_modules') continue;
-    const itemPath = path.join(dirPath, item);
-    if (fileService && fileService.shouldIgnoreFile(itemPath)) continue;
+  // 过滤掉需要忽略的项
 
-    const itemStats = await fs.stat(itemPath);
-    if (itemStats.isDirectory()) {
-      process.dir += 1;
-      const child = await readDirectoryRecursive(itemPath, {
-        ...options,
-        maxDepth: searchText ? maxDepth : maxDepth - 1,
-        root,
-        search: {
-          ...search,
-          process,
-          onProcess(searchResult) {
-            if (searchResult.match) {
-              if (!result.children.find((v) => v.fullPath === searchResult.match.fullPath)) {
-                result.children.push(searchResult.match);
+  const filteredItems = items.filter((item) => {
+    if (item === 'node_modules') return false;
+
+    const itemPath = path.join(dirPath, item);
+
+    if (fileService && fileService.shouldIgnoreFile(itemPath)) return false;
+
+    return true;
+  });
+
+  // 批量并发处理文件和目录
+
+  const chunks: (typeof filteredItems)[] = [];
+
+  for (let i = 0; i < filteredItems.length; i += concurrency) {
+    chunks.push(filteredItems.slice(i, i + concurrency));
+  }
+
+  for (const chunk of chunks) {
+    checkStatus();
+
+    // 并发处理一批文件/目录
+
+    const chunkPromises = chunk.map(async (item) => {
+      checkStatus();
+
+      const itemPath = path.join(dirPath, item);
+
+      const itemStats = await fs.stat(itemPath);
+
+      if (itemStats.isDirectory()) {
+        process.dir += 1;
+
+        const child = await readDirectoryRecursive(itemPath, {
+          ...options,
+
+          maxDepth: searchText ? maxDepth : maxDepth - 1,
+
+          root,
+
+          concurrency,
+
+          search: {
+            ...search,
+
+            process,
+
+            onProcess(searchResult) {
+              if (searchResult.match) {
+                if (!result.children.find((v) => v.fullPath === searchResult.match.fullPath)) {
+                  result.children.push(searchResult.match);
+                }
+
+                onSearchProcess({ ...process, match: result });
               }
-              onSearchProcess({ ...process, match: result });
-            }
+            },
           },
-        },
-      });
-      if (child && !searchText) {
-        result.children.push(child);
+        });
+
+        return child;
+      } else {
+        const children = {
+          name: item,
+
+          relativePath: path.relative(root, itemPath),
+
+          fullPath: itemPath,
+
+          isDir: false,
+
+          isFile: true,
+        };
+
+        if (searchText) {
+          searchResult = matchSearch(children.name);
+        }
+
+        return children;
       }
-    } else {
-      const children = {
-        name: item,
-        relativePath: path.relative(root, itemPath),
-        fullPath: itemPath,
-        isDir: false,
-        isFile: true,
-      };
-      if (!searchText) {
-        result.children.push(children);
-        continue;
+    });
+
+    const results = await Promise.all(chunkPromises);
+
+    // 处理结果
+
+    for (const itemResult of results) {
+      if (!itemResult) continue;
+
+      if (itemResult.isDir && !searchText) {
+        result.children.push(itemResult);
+      } else if (!itemResult.isDir && !searchText) {
+        result.children.push(itemResult);
       }
-      searchResult = matchSearch(children.name);
-      if (searchResult) {
-        result.children.push(children);
-      }
-      process.file += 1;
-      onSearchProcess({
-        ...process,
-        match: searchResult ? result : undefined,
-      });
     }
   }
+
   result.children.sort((a, b) => {
     if (a.isDir && !b.isDir) return -1;
     if (!a.isDir && b.isDir) return 1;

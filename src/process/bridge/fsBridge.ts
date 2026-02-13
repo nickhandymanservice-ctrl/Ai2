@@ -443,48 +443,67 @@ export function initFsBridge(): void {
       // 确保工作空间目录存在 / Ensure workspace directory exists
       await fs.mkdir(workspace, { recursive: true });
 
-      for (const filePath of filePaths) {
-        try {
-          let targetPath: string;
+      // 批量并发处理文件复制，提升性能
+      const CONCURRENCY = 5; // 并发数，避免同时打开过多文件句柄
+      const chunks: (typeof filePaths)[] = [];
+      for (let i = 0; i < filePaths.length; i += CONCURRENCY) {
+        chunks.push(filePaths.slice(i, i + CONCURRENCY));
+      }
 
-          if (sourceRoot) {
-            // Preserve directory structure / 保留目录结构
-            const relativePath = path.relative(sourceRoot, filePath);
-            targetPath = path.join(workspace, relativePath);
+      for (const chunk of chunks) {
+        const chunkPromises = chunk.map(async (filePath) => {
+          try {
+            let targetPath: string;
 
-            // Ensure parent directory exists / 确保父目录存在
-            await fs.mkdir(path.dirname(targetPath), { recursive: true });
+            if (sourceRoot) {
+              // Preserve directory structure / 保留目录结构
+              const relativePath = path.relative(sourceRoot, filePath);
+              targetPath = path.join(workspace, relativePath);
+
+              // Ensure parent directory exists / 确保父目录存在
+              await fs.mkdir(path.dirname(targetPath), { recursive: true });
+            } else {
+              // Flatten to root (legacy behavior) / 扁平化到根目录（旧行为）
+              const fileName = path.basename(filePath);
+              targetPath = path.join(workspace, fileName);
+            }
+
+            // 检查目标文件是否已存在
+            const exists = await fs
+              .access(targetPath)
+              .then(() => true)
+              .catch(() => false);
+
+            let finalTargetPath = targetPath;
+            if (exists) {
+              // 如果文件已存在，添加时间戳后缀 / Append timestamp when target file already exists
+              const timestamp = Date.now();
+              const ext = path.extname(targetPath);
+              const name = path.basename(targetPath, ext);
+              // Construct new path in the same directory / 在同一目录下构建新路径
+              const dir = path.dirname(targetPath);
+              const newFileName = `${name}${AIONUI_TIMESTAMP_SEPARATOR}${timestamp}${ext}`;
+              finalTargetPath = path.join(dir, newFileName);
+            }
+
+            await fs.copyFile(filePath, finalTargetPath);
+            return { success: true, path: finalTargetPath };
+          } catch (error) {
+            // 记录失败的文件路径与错误信息，前端可以用来提示用户 / Record failed file info so UI can warn user
+            const message = error instanceof Error ? error.message : String(error);
+            return { success: false, path: filePath, error: message };
+          }
+        });
+
+        const results = await Promise.all(chunkPromises);
+
+        // 处理结果
+        for (const result of results) {
+          if (result.success) {
+            copiedFiles.push(result.path);
           } else {
-            // Flatten to root (legacy behavior) / 扁平化到根目录（旧行为）
-            const fileName = path.basename(filePath);
-            targetPath = path.join(workspace, fileName);
+            failedFiles.push({ path: result.path, error: result.error || 'Unknown error' });
           }
-
-          // 检查目标文件是否已存在
-          const exists = await fs
-            .access(targetPath)
-            .then(() => true)
-            .catch(() => false);
-
-          let finalTargetPath = targetPath;
-          if (exists) {
-            // 如果文件已存在，添加时间戳后缀 / Append timestamp when target file already exists
-            const timestamp = Date.now();
-            const ext = path.extname(targetPath);
-            const name = path.basename(targetPath, ext);
-            // Construct new path in the same directory / 在同一目录下构建新路径
-            const dir = path.dirname(targetPath);
-            const newFileName = `${name}${AIONUI_TIMESTAMP_SEPARATOR}${timestamp}${ext}`;
-            finalTargetPath = path.join(dir, newFileName);
-          }
-
-          await fs.copyFile(filePath, finalTargetPath);
-          copiedFiles.push(finalTargetPath);
-        } catch (error) {
-          // 记录失败的文件路径与错误信息，前端可以用来提示用户 / Record failed file info so UI can warn user
-          const message = error instanceof Error ? error.message : String(error);
-          console.error(`Failed to copy file ${filePath}:`, message);
-          failedFiles.push({ path: filePath, error: message });
         }
       }
 
