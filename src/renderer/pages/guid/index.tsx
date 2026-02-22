@@ -1445,7 +1445,8 @@ const Guid: React.FC = () => {
                   backgroundColor: 'var(--color-guid-agent-bar, var(--aou-2))',
                   transition: 'all 0.6s cubic-bezier(0.2, 0.8, 0.3, 1)',
                   width: 'fit-content',
-                  gap: 0,
+                  maxWidth: '100%',
+                  gap: 4,
                   color: 'var(--text-primary)',
                 }}
               >
@@ -1459,15 +1460,8 @@ const Guid: React.FC = () => {
                       <React.Fragment key={getAgentKey(agent)}>
                         {index > 0 && <div className='text-16px lh-1 p-2px select-none opacity-30'>|</div>}
                         <div
-                          className={`group flex items-center cursor-pointer whitespace-nowrap overflow-hidden ${isSelected ? 'opacity-100 px-12px py-8px rd-20px mx-2px' : 'opacity-60 p-4px hover:opacity-100'}`}
-                          style={
-                            isSelected
-                              ? {
-                                  transition: 'opacity 0.5s cubic-bezier(0.2, 0.8, 0.3, 1)',
-                                  backgroundColor: 'var(--fill-0)',
-                                }
-                              : { transition: 'opacity 0.5s cubic-bezier(0.2, 0.8, 0.3, 1)' }
-                          }
+                          className={`group flex items-center cursor-pointer whitespace-nowrap overflow-hidden ${isSelected ? `opacity-100 px-12px py-8px rd-20px mx-2px ${styles.agentItemSelected}` : 'opacity-60 p-4px hover:opacity-100'}`}
+                          style={isSelected ? undefined : { transition: 'opacity 0.5s cubic-bezier(0.2, 0.8, 0.3, 1)' }}
                           onClick={() => {
                             setSelectedAgentKey(getAgentKey(agent));
                             setMentionOpen(false);
@@ -1897,6 +1891,7 @@ const Guid: React.FC = () => {
                         <div
                           key={assistant.id}
                           className='h-28px group flex items-center gap-8px px-16px rd-100px cursor-pointer transition-all b-1 b-solid border-arco-2 bg-fill-0 hover:bg-fill-1 select-none'
+                          style={{ borderWidth: '1px' }}
                           onClick={() => {
                             setSelectedAgentKey(`custom:${assistant.id}`);
                             setMentionOpen(false);
@@ -1910,9 +1905,9 @@ const Guid: React.FC = () => {
                         </div>
                       );
                     })}
-                  <div className='h-28px flex items-center gap-8px px-16px rd-100px cursor-pointer transition-all hover:bg-fill-2 b-1 b-dashed b-aou-2 select-none' onClick={() => navigate('/settings/agent')}>
-                    <Plus theme='outline' size={14} className='line-height-0' />
-                    <span className='text-14px text-2 hover:text-1'>{t('settings.addAssistant', { defaultValue: 'Add Assistant' })}</span>
+                  <div className='group flex items-center justify-center h-28px w-max min-w-28px max-w-28px rd-50% bg-fill-0 cursor-pointer overflow-hidden whitespace-nowrap b-1 b-dashed b-aou-2 select-none transition-all duration-500 ease-out hover:min-w-0 hover:max-w-320px hover:rd-100px hover:px-16px hover:justify-start hover:gap-8px hover:bg-fill-2' style={{ borderWidth: '1px' }} onClick={() => navigate('/settings/agent')}>
+                    <Plus theme='outline' size={14} className='flex-shrink-0 line-height-0 text-[var(--color-text-3)] group-hover:text-[var(--color-text-2)] transition-colors duration-300' />
+                    <span className='opacity-0 max-w-0 overflow-hidden text-14px text-2 group-hover:opacity-100 group-hover:max-w-none transition-[opacity,max-width] duration-400 ease-out delay-75'>{t('settings.addAssistant', { defaultValue: 'Add Assistant' })}</span>
                   </div>
                 </div>
               )}
@@ -1921,7 +1916,7 @@ const Guid: React.FC = () => {
         </div>
 
         {/* 底部快捷按钮 */}
-        <div className='absolute bottom-32px left-50% -translate-x-1/2 flex flex-col justify-center items-center'>
+        <div className={`absolute left-50% -translate-x-1/2 flex flex-col justify-center items-center ${styles.guidQuickActions}`}>
           {/* <div className='text-text-3 text-14px mt-24px mb-12px'>{t('conversation.welcome.quickActionsTitle')}</div> */}
           <div className='flex justify-center items-center gap-24px'>
             <div className='group flex items-center justify-center w-36px h-36px rd-50% bg-fill-0 cursor-pointer overflow-hidden whitespace-nowrap hover:w-200px hover:rd-28px hover:px-20px hover:justify-start hover:gap-10px transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.3,1)]' style={quickActionStyle(hoveredQuickAction === 'feedback')} onMouseEnter={() => setHoveredQuickAction('feedback')} onMouseLeave={() => setHoveredQuickAction(null)} onClick={() => openLink('https://x.com/AionUi')}>
