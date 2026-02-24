@@ -113,7 +113,10 @@ class OpenClawAgentManager extends BaseAgentManager<OpenClawAgentManagerData> {
     ipcBridge.conversation.responseStream.emit(msg);
 
     // Emit to Channel global event bus (Telegram/Lark streaming)
-    channelEventBus.emitAgentMessage(this.conversation_id, msg);
+    // Skip user_content to avoid echoing the channel user's own message back
+    if (msg.type !== 'user_content') {
+      channelEventBus.emitAgentMessage(this.conversation_id, msg);
+    }
   }
 
   private handleSignalEvent(message: IResponseMessage): void {
@@ -159,7 +162,7 @@ class OpenClawAgentManager extends BaseAgentManager<OpenClawAgentManagerData> {
   private handleSessionKeyUpdate(sessionKey: string): void {
     // Store updated session key for resume
     // This could be persisted to conversation extra data
-    console.log('[OpenClawAgentManager] Session key updated:', sessionKey);
+    console.debug('[OpenClawAgentManager] Session key updated:', sessionKey);
   }
 
   async sendMessage(data: { content: string; files?: string[]; msg_id?: string }) {
@@ -198,6 +201,46 @@ class OpenClawAgentManager extends BaseAgentManager<OpenClawAgentManagerData> {
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.emitErrorMessage(`Failed to send message: ${errorMsg}`);
       throw error;
+    }
+  }
+
+  /**
+   * Send a message from an external channel (Feishu/Telegram) using a separate
+   * gateway session key to avoid rs_ 404 errors with the main AionUI session.
+   * Gateway broadcasts the response to all WebSocket clients, so the main
+   * OpenClawAgentManager automatically receives and renders the reply.
+   */
+  async sendChannelMessage(data: { content: string; msg_id?: string }): Promise<void> {
+    cronBusyGuard.setProcessing(this.conversation_id, true);
+    this.status = 'running';
+    try {
+      await this.bootstrap;
+
+      // Route user message through handleStreamEvent — the same proven code path
+      // used by AI responses. handleStreamEvent handles DB persistence and IPC
+      // emission to both openclawConversation and conversation streams.
+      if (data.msg_id && data.content) {
+        this.handleStreamEvent({
+          type: 'user_content',
+          conversation_id: this.conversation_id,
+          msg_id: data.msg_id,
+          data: data.content,
+        });
+      }
+
+      const result = await this.agent.sendChannelMessage(data.content);
+      if (result.success === false) {
+        throw new Error(result.error.message || 'Failed to send channel message');
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.emitErrorMessage(`Failed to send channel message: ${errorMsg}`);
+      throw error;
+    } finally {
+      // Always release busy guard to prevent permanent busy state when
+      // the gateway does not emit a finish event.
+      cronBusyGuard.setProcessing(this.conversation_id, false);
+      this.status = 'finished';
     }
   }
 

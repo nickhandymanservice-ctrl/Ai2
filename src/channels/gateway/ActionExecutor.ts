@@ -7,6 +7,7 @@
 import type { TMessage } from '@/common/chatLib';
 import { getDatabase } from '@/process/database';
 import { ProcessConfig } from '@/process/initStorage';
+import WorkerManage from '@/process/WorkerManage';
 import { ConversationService } from '@/process/services/conversationService';
 import { buildChatErrorResponse, chatActions } from '../actions/ChatActions';
 import { handlePairingShow, platformActions } from '../actions/PlatformActions';
@@ -17,11 +18,11 @@ import type { SessionManager } from '../core/SessionManager';
 import type { PairingService } from '../pairing/PairingService';
 import type { PluginMessageHandler } from '../plugins/BasePlugin';
 import { getChannelConversationName, resolveChannelConvType } from '../types';
-import { createMainMenuCard, createErrorRecoveryCard, createToolConfirmationCard } from '../plugins/lark/LarkCards';
+import { createMainMenuCard, createErrorRecoveryCard, createResponseActionsCard, createToolConfirmationCard } from '../plugins/lark/LarkCards';
 import { convertHtmlToLarkMarkdown } from '../plugins/lark/LarkAdapter';
 import { createMainMenuCard as createDingTalkMainMenuCard, createErrorRecoveryCard as createDingTalkErrorRecoveryCard, createResponseActionsCard as createDingTalkResponseActionsCard, createToolConfirmationCard as createDingTalkToolConfirmationCard } from '../plugins/dingtalk/DingTalkCards';
 import { convertHtmlToDingTalkMarkdown } from '../plugins/dingtalk/DingTalkAdapter';
-import { createMainMenuKeyboard, createToolConfirmationKeyboard } from '../plugins/telegram/TelegramKeyboards';
+import { createMainMenuKeyboard, createResponseActionsKeyboard, createToolConfirmationKeyboard } from '../plugins/telegram/TelegramKeyboards';
 import { escapeHtml } from '../plugins/telegram/TelegramAdapter';
 import type { ChannelAgentType, IUnifiedIncomingMessage, IUnifiedOutgoingMessage, PluginType } from '../types';
 import type { PluginManager } from './PluginManager';
@@ -46,11 +47,13 @@ function getMainMenuMarkup(platform: PluginType) {
  * Get response actions markup based on platform
  */
 function getResponseActionsMarkup(platform: PluginType, text?: string) {
+  if (platform === 'lark') {
+    return createResponseActionsCard(text || '');
+  }
   if (platform === 'dingtalk') {
     return createDingTalkResponseActionsCard(text || '');
   }
-  // Telegram and Lark: no response action buttons
-  return undefined;
+  return createResponseActionsKeyboard();
 }
 
 /**
@@ -157,8 +160,7 @@ function convertTMessageToOutgoing(message: TMessage, platform: PluginType, isCo
     case 'text': {
       // 根据平台格式化文本
       // Format text based on platform
-      const rawText = formatTextForPlatform(message.content.content || '', platform);
-      const text = rawText.trim() ? rawText : '...';
+      const text = formatTextForPlatform(message.content.content || '', platform) || '...';
       return {
         type: 'text',
         text,
@@ -343,6 +345,14 @@ export class ActionExecutor {
 
       // Get or create session (scoped by chatId for per-chat isolation)
       let session = this.sessionManager.getSession(channelUser.id, chatId);
+
+      // When an active OpenClaw session exists in AionUI, ALWAYS route channel
+      // messages to it (even if a cached session points to a different conversation).
+      const activeOpenClawTask = WorkerManage.listTasks().find((t) => t.type === 'openclaw-gateway');
+      if (activeOpenClawTask && session?.conversationId !== activeOpenClawTask.id) {
+        session = this.sessionManager.createSessionWithConversation(channelUser, activeOpenClawTask.id, 'acp', undefined, chatId);
+      }
+
       if (!session || !session.conversationId) {
         const source = platform === 'lark' ? 'lark' : platform === 'dingtalk' ? 'dingtalk' : 'telegram';
 

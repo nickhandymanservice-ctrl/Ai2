@@ -9,7 +9,7 @@ import { useTextSelection } from '@/renderer/hooks/useTextSelection';
 import { useTypingAnimation } from '@/renderer/hooks/useTypingAnimation';
 import { iconColors } from '@/renderer/theme/colors';
 import { Close } from '@icon-park/react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import { vs, vs2015 } from 'react-syntax-highlighter/dist/esm/styles/hljs';
@@ -42,9 +42,22 @@ const CodePreview: React.FC<CodePreviewProps> = ({ content, language = 'text', o
   // 使用外部传入的 viewMode，否则使用内部状态 / Use external viewMode if provided, otherwise use internal state
   const viewMode = externalViewMode !== undefined ? externalViewMode : internalViewMode;
 
+  // JSON 自动格式化：检测压缩的 JSON 并 pretty-print / Auto-format: detect minified JSON and pretty-print
+  const formattedContent = useMemo(() => {
+    if (language === 'json' && content) {
+      try {
+        const parsed = JSON.parse(content);
+        return JSON.stringify(parsed, null, 2);
+      } catch {
+        return content;
+      }
+    }
+    return content;
+  }, [content, language]);
+
   // 🎯 使用流式打字动画 Hook / Use typing animation Hook
   const { displayedContent } = useTypingAnimation({
-    content,
+    content: formattedContent,
     enabled: viewMode === 'preview', // 仅在预览模式下启用 / Only enable in preview mode
     speed: 50, // 50 字符/秒 / 50 characters per second
   });
@@ -52,7 +65,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({ content, language = 'text', o
   // 🎯 使用智能自动滚动 Hook / Use auto-scroll Hook
   useAutoScroll({
     containerRef,
-    content,
+    content: formattedContent,
     enabled: viewMode === 'preview', // 仅在预览模式下启用 / Only enable in preview mode
     threshold: 200, // 距离底部 200px 以内时跟随 / Follow when within 200px from bottom
   });
@@ -78,7 +91,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({ content, language = 'text', o
 
   // 下载代码文件 / Download code file
   const handleDownload = () => {
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([formattedContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -134,8 +147,8 @@ const CodePreview: React.FC<CodePreviewProps> = ({ content, language = 'text', o
       {/* 内容区域 / Content area */}
       <div ref={containerRef} className='flex-1 overflow-auto p-16px'>
         {viewMode === 'source' ? (
-          // 原文模式：显示原始代码 / Source mode: Show raw code
-          <pre className='w-full m-0 p-12px bg-bg-2 rd-8px overflow-auto font-mono text-12px text-t-primary whitespace-pre-wrap break-words'>{content}</pre>
+          // 原文模式：显示原始代码（JSON 使用格式化后的内容）/ Source mode: Show raw code (JSON uses formatted content)
+          <pre className='w-full m-0 p-12px bg-bg-2 rd-8px overflow-auto font-mono text-12px text-t-primary whitespace-pre-wrap break-words'>{formattedContent}</pre>
         ) : (
           // 预览模式：语法高亮 / Preview mode: Syntax highlighting
           <SyntaxHighlighter style={currentTheme === 'dark' ? vs2015 : vs} language={language} PreTag='div' wrapLongLines={language === 'text' || language === 'txt'} customStyle={language === 'text' || language === 'txt' ? { whiteSpace: 'pre-wrap', wordBreak: 'break-word' } : undefined}>

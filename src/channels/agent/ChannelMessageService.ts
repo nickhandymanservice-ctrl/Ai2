@@ -7,6 +7,7 @@
 import WorkerManage from '@/process/WorkerManage';
 import { getDatabase } from '@/process/database';
 import type BaseAgentManager from '@/process/task/BaseAgentManager';
+import type OpenClawAgentManager from '@/process/task/OpenClawAgentManager';
 import { composeMessage, transformMessage, type TMessage } from '../../common/chatLib';
 import { uuid } from '../../common/utils';
 import { channelEventBus, type IAgentMessageEvent } from './ChannelEventBus';
@@ -158,6 +159,8 @@ export class ChannelMessageService {
     // 获取任务
     // Get task
     let task: BaseAgentManager<unknown>;
+    let isOpenClaw = false;
+
     try {
       // 检查会话来源，如果来自 Channel 则开启 yoloMode (自动同意)
       // Check conversation source, enable yoloMode if it's from a Channel
@@ -168,6 +171,8 @@ export class ChannelMessageService {
       task = await WorkerManage.getTaskByIdRollbackBuild(conversationId, {
         yoloMode: isFromChannel,
       });
+
+      isOpenClaw = task.type === 'openclaw-gateway';
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Failed to get conversation task';
       console.error(`[ChannelMessageService] Failed to get task:`, errorMsg);
@@ -199,11 +204,13 @@ export class ChannelMessageService {
         finishCount: 0,
       });
 
-      // Build payload based on agent type.
-      // Gemini expects { input }, ACP/Codex expect { content }.
-      const payload: { input?: string; content?: string; msg_id: string } = task.type === 'gemini' ? { input: message, msg_id: msgId } : task.type === 'acp' || task.type === 'codex' ? { content: message, msg_id: msgId } : { content: message, msg_id: msgId };
+      // Send message based on agent type.
+      // OpenClaw: use sendChannelMessage (separate session key to avoid rs_ 404).
+      // Gateway broadcasts the response to all WebSocket clients, so the main
+      // OpenClawAgentManager receives and renders it automatically via channelEventBus.
+      const sendPromise = isOpenClaw ? (task as OpenClawAgentManager).sendChannelMessage({ content: message, msg_id: msgId }) : task.sendMessage(task.type === 'gemini' ? { input: message, msg_id: msgId } : { content: message, msg_id: msgId });
 
-      task.sendMessage(payload).catch((error: Error) => {
+      sendPromise.catch((error: Error) => {
         const errorMessage = `Error: ${error.message || 'Failed to send message'}`;
         console.error(`[ChannelMessageService] Send error:`, error);
         onStream({ type: 'tips', id: uuid(), conversation_id: conversationId, content: { type: 'error', content: errorMessage } }, true);

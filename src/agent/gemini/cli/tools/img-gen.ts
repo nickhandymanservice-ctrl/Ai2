@@ -278,6 +278,9 @@ class ImageGenerationInvocation extends BaseToolInvocation<ImageGenerationToolPa
 
   private async ensureClient(): Promise<RotatingClient> {
     if (!this.rotatingClient) {
+      if (!this.imageGenerationModel.apiKey?.trim()) {
+        throw new Error('Image generation model has no API key configured. Please set a valid API key in Settings > Tools > Image Generation.');
+      }
       this.rotatingClient = await ClientFactory.createRotatingClient(this.imageGenerationModel, {
         proxy: this.proxy,
         rotatingOptions: { maxRetries: 3, retryDelay: 1000 },

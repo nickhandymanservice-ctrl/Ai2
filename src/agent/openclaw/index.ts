@@ -77,6 +77,10 @@ export class OpenClawAgent {
   private currentStreamMsgId: string | null = null;
   private accumulatedAssistantText = '';
 
+  // When true, all chat.event processing is skipped to prevent duplicate output
+  // during channel turns (Feishu/Telegram/DingTalk). Agent events handle rendering.
+  private channelTurnActive = false;
+
   private readonly onStreamEvent: (data: IResponseMessage) => void;
   private readonly onSignalEvent?: (data: IResponseMessage) => void;
   private readonly onSessionKeyUpdate?: (sessionKey: string) => void;
@@ -112,9 +116,9 @@ export class OpenClawAgent {
       const password = gatewayConfig.password ?? getGatewayAuthPassword() ?? undefined;
 
       if (token) {
-        console.log('[OpenClawAgent] Using gateway auth token from config');
+        console.debug('[OpenClawAgent] Using gateway auth token');
       } else if (password) {
-        console.log('[OpenClawAgent] Using gateway auth password from config');
+        console.debug('[OpenClawAgent] Using gateway auth password');
       }
 
       // Start gateway process if not using external
@@ -210,6 +214,7 @@ export class OpenClawAgent {
       }
 
       // Reset streaming state for new message
+      this.channelTurnActive = false;
       this.currentStreamMsgId = null;
       this.accumulatedAssistantText = '';
       this.adapter.resetMessageTracking();
@@ -259,6 +264,42 @@ export class OpenClawAgent {
 
     pending.resolve({ optionId: data.confirmKey });
     return Promise.resolve({ success: true, data: null });
+  }
+
+  /**
+   * Send a message from an external channel (Feishu/Telegram) using a separate
+   * gateway session key to avoid rs_ 404 errors with the main AionUI session.
+   * Gateway broadcasts the response to all WebSocket clients, so the main
+   * OpenClawAgentManager automatically receives and renders the reply.
+   */
+  async sendChannelMessage(content: string): Promise<AcpResult> {
+    try {
+      if (!this.connection?.isConnected) {
+        await this.start();
+      }
+
+      // Block all chat.event processing for the entire channel turn.
+      // Gateway sends both agent.event and chat.event for the same response;
+      // without this flag, handleEndTurn (from agent lifecycle end) resets
+      // currentStreamMsgId, allowing late-arriving chat.event deltas to
+      // produce duplicate content in AionUI.
+      this.channelTurnActive = true;
+      this.currentStreamMsgId = uuid();
+      this.accumulatedAssistantText = '';
+
+      await this.connection!.chatSend({
+        sessionKey: 'channel',
+        message: content,
+      });
+
+      return { success: true, data: null };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: createAcpError(AcpErrorType.UNKNOWN, errorMsg, false),
+      };
+    }
   }
 
   /**
@@ -348,10 +389,9 @@ export class OpenClawAgent {
   }
 
   private handleChatEvent(event: ChatEvent): void {
-    // Skip delta processing when handleAgentEvent is already handling the assistant stream
-    // This prevents duplicate messages with different msg_ids
-    if (event.state === 'delta' && this.currentStreamMsgId) {
-      // Agent stream is active, skip to avoid duplicate content
+    // Skip delta processing when agent.event is already handling the assistant stream,
+    // or during channel turns where late-arriving chat.event deltas must be blocked.
+    if (event.state === 'delta' && (this.currentStreamMsgId || this.channelTurnActive)) {
       return;
     }
 
@@ -551,7 +591,9 @@ export class OpenClawAgent {
   }
 
   private handleEndTurn(): void {
-    // Reset streaming state for next turn
+    // Always reset streaming state so the next turn gets a fresh msg_id.
+    // Late chat.event deltas during channel turns are blocked by the
+    // channelTurnActive flag in handleChatEvent, not by currentStreamMsgId.
     this.currentStreamMsgId = null;
     this.accumulatedAssistantText = '';
 

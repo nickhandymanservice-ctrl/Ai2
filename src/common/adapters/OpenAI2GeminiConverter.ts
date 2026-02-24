@@ -74,7 +74,7 @@ export interface GeminiRequest {
       parameters?: any;
     }>;
   }>;
-  generationConfig?: {
+  config?: {
     responseModalities?: string[];
     maxOutputTokens?: number;
     temperature?: number;
@@ -135,13 +135,15 @@ export class OpenAI2GeminiConverter implements ProtocolConverter<OpenAIChatCompl
       }
     }
 
-    // Check if request seems to be for image generation
-    // 检查请求是否为图片生成
-    const isImageGeneration = parts.some((part) => part.text && (part.text.toLowerCase().includes('generate image') || part.text.toLowerCase().includes('create image') || part.text.toLowerCase().includes('draw') || part.text.toLowerCase().includes('make image')));
-
     // Use the model passed in params, don't override with hardcoded model
     // 使用传入的模型，不要硬编码覆盖
     const model = params.model || this.config.defaultModel || 'gemini-1.5-flash';
+
+    // Check if request is for image generation by model name or prompt keywords
+    // 通过模型名称或提示词关键字判断是否为图片生成请求
+    const modelLower = model.toLowerCase();
+    const isImageModel = modelLower.includes('image') || modelLower.includes('banana');
+    const isImageGeneration = isImageModel || parts.some((part) => part.text && (part.text.toLowerCase().includes('generate image') || part.text.toLowerCase().includes('create image') || part.text.toLowerCase().includes('draw') || part.text.toLowerCase().includes('make image') || part.text.toLowerCase().includes('edit image') || part.text.toLowerCase().includes('analyze')));
 
     const request: GeminiRequest = {
       model,
@@ -150,8 +152,9 @@ export class OpenAI2GeminiConverter implements ProtocolConverter<OpenAIChatCompl
 
     // For image generation, add responseModalities to request image output
     // 对于图片生成，添加 responseModalities 以请求图片输出
+    // Note: @google/genai SDK uses "config" not "generationConfig"
     if (isImageGeneration) {
-      request.generationConfig = {
+      request.config = {
         responseModalities: ['IMAGE', 'TEXT'],
       };
       console.log(`[OpenAI2GeminiConverter] Image generation detected, adding responseModalities: ["IMAGE", "TEXT"]`);
