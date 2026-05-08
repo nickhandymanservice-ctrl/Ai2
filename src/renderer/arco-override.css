@@ -206,3 +206,28 @@ body[arco-theme='dark'] .arco-message-error {
     background: var(--color-primary);
   }
 }
+
+/*
+ * Popup / dropdown z-index fix for frameless Electron windows.
+ *
+ * Arco Design portals render to document.body at z-index ~1000. In a
+ * frameless Electron window (frame: false) the custom titlebar uses
+ * -webkit-app-region: drag which can create a stacking context that
+ * swallows pointer events and clips portaled popups. Elevating all
+ * arco trigger popups above 9000 ensures Select / Dropdown / DatePicker
+ * panels appear above the frame chrome and receive pointer events.
+ */
+.arco-trigger-popup,
+.arco-select-popup,
+.arco-dropdown-popup,
+.arco-datepicker-popup,
+.arco-timepicker-popup,
+.arco-cascader-popup,
+.arco-tree-select-popup,
+.arco-mentions-popup,
+.arco-tooltip-popup,
+.arco-popover-popup {
+  z-index: 9999 !important;
+  /* Ensure the popup is never clipped by an ancestor overflow:hidden */
+  position: fixed !important;
+}
