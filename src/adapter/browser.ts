@@ -25,7 +25,7 @@ const win = window as CustomWindow;
  *   explicit loopback address 127.0.0.1 which always works for local servers.
  */
 if (win.electronAPI) {
-  // ── Electron IPC path ────────────────────────────────────────────────────
+  // ── Electron IPC path ──────────────────────────────────────────────
   bridge.adapter({
     emit(name, data) {
       return win.electronAPI.emit(name, data);
@@ -43,7 +43,7 @@ if (win.electronAPI) {
     },
   });
 } else {
-  // ── WebSocket path ───────────────────────────────────────────────────────
+  // ── WebSocket path ────────────────────────────────────────────────────────
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const port = window.location.port || '25808';
 
@@ -92,11 +92,7 @@ if (win.electronAPI) {
 
     // After enough consecutive failures on the primary hostname, switch to
     // the explicit loopback address so broken DNS cannot keep us stuck.
-    if (
-      consecutiveCloses >= FALLBACK_AFTER_CLOSES &&
-      currentSocketUrl === primarySocketUrl &&
-      primarySocketUrl !== fallbackSocketUrl
-    ) {
+    if (consecutiveCloses >= FALLBACK_AFTER_CLOSES && currentSocketUrl === primarySocketUrl && primarySocketUrl !== fallbackSocketUrl) {
       currentSocketUrl = fallbackSocketUrl;
     }
 
