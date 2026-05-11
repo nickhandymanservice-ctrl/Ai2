@@ -17,14 +17,20 @@ import { useSettingsViewMode } from '../settingsViewContext';
 /** Milliseconds before an IPC call is treated as timed-out. */
 const IPC_TIMEOUT_MS = 6_000;
 
-/** Race an IPC Promise against a fixed timeout so the UI never hangs. */
+/**
+ * Race an IPC Promise against a fixed timeout so the UI never hangs.
+ *
+ * The timer is cleared in `finally` so a fast-resolving IPC call does not
+ * keep an event-loop timer alive for the full timeout window.
+ */
 function withTimeout<T>(promise: Promise<T>, ms = IPC_TIMEOUT_MS): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`IPC call timed out after ${ms}ms`)), ms),
-    ),
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`IPC call timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  });
 }
 
 interface GeminiModalContentProps {

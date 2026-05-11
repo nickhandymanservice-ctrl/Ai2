@@ -216,6 +216,10 @@ body[arco-theme='dark'] .arco-message-error {
  * swallows pointer events and clips portaled popups. Elevating all
  * arco trigger popups above 9000 ensures Select / Dropdown / DatePicker
  * panels appear above the frame chrome and receive pointer events.
+ *
+ * Note: do NOT force position: fixed here. Arco's Trigger component
+ * already manages portal + scroll-aware positioning, and forcing fixed
+ * detaches popups from their trigger inside scrolled containers.
  */
 .arco-trigger-popup,
 .arco-select-popup,
@@ -228,6 +232,4 @@ body[arco-theme='dark'] .arco-message-error {
 .arco-tooltip-popup,
 .arco-popover-popup {
   z-index: 9999 !important;
-  /* Ensure the popup is never clipped by an ancestor overflow:hidden */
-  position: fixed !important;
 }
