@@ -14,6 +14,25 @@ import { useTranslation } from 'react-i18next';
 import classNames from 'classnames';
 import { useSettingsViewMode } from '../settingsViewContext';
 
+/** Milliseconds before an IPC call is treated as timed-out. */
+const IPC_TIMEOUT_MS = 6_000;
+
+/**
+ * Race an IPC Promise against a fixed timeout so the UI never hangs.
+ *
+ * The timer is cleared in `finally` so a fast-resolving IPC call does not
+ * keep an event-loop timer alive for the full timeout window.
+ */
+function withTimeout<T>(promise: Promise<T>, ms = IPC_TIMEOUT_MS): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`IPC call timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  });
+}
+
 interface GeminiModalContentProps {
   /** 请求关闭设置弹窗 / Request closing the settings modal */
   onRequestClose?: () => void;
@@ -54,8 +73,7 @@ const GeminiModalContent: React.FC<GeminiModalContentProps> = ({ onRequestClose 
 
   const loadGoogleAuthStatus = (proxy?: string, geminiConfig?: Record<string, unknown>) => {
     setGoogleAccountLoading(true);
-    ipcBridge.googleAuth.status
-      .invoke({ proxy: proxy })
+    withTimeout(ipcBridge.googleAuth.status.invoke({ proxy: proxy }))
       .then((data) => {
         if (data.success && data.data?.account) {
           const email = data.data.account;
@@ -73,6 +91,9 @@ const GeminiModalContent: React.FC<GeminiModalContentProps> = ({ onRequestClose 
       })
       .catch((error) => {
         console.warn('Failed to check Google auth status:', error);
+        // Clear loading state even if the IPC call timed out or failed
+        form.setFieldValue('googleAccount', '');
+        setCurrentAccountEmail(null);
       })
       .finally(() => {
         setGoogleAccountLoading(false);
@@ -190,8 +211,7 @@ const GeminiModalContent: React.FC<GeminiModalContentProps> = ({ onRequestClose 
                         className='rd-100px'
                         onClick={() => {
                           setGoogleAccountLoading(true);
-                          ipcBridge.googleAuth.login
-                            .invoke({ proxy: form.getFieldValue('proxy') })
+                          withTimeout(ipcBridge.googleAuth.login.invoke({ proxy: form.getFieldValue('proxy') }))
                             .then((result) => {
                               if (result.success) {
                                 loadGoogleAuthStatus(form.getFieldValue('proxy'));
@@ -199,8 +219,6 @@ const GeminiModalContent: React.FC<GeminiModalContentProps> = ({ onRequestClose 
                                   message.success(t('settings.googleLoginSuccess', { defaultValue: 'Successfully logged in' }));
                                 }
                               } else {
-                                // 登录失败，显示错误消息
-                                // Login failed, show error message
                                 const errorMsg = result.msg || t('settings.googleLoginFailed', { defaultValue: 'Login failed. Please try again.' });
                                 message.error(errorMsg);
                                 console.error('[GoogleAuth] Login failed:', result.msg);
