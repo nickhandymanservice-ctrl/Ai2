@@ -16,11 +16,14 @@
  * --warning / --danger / --primary) so state cues follow theme switches.
  * Chrome (surfaces, mono text) stays on the slate palette intentionally
  * because the dashboard is a fixed dark cockpit.
+ *
+ * Icon set is constrained to names that are already imported elsewhere
+ * in src/renderer (sider.tsx, SettingsSider.tsx, sendbox.tsx) so the
+ * iconParkPlugin in electron.vite.config.ts can always resolve them.
  */
 
-import type React from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Analysis, Caution, Comment, Earth, Network, Preview, Protect, Pulse, Robot, Server, Terminal, Wifi } from '@icon-park/react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Communication, Computer, Earth, Info, LinkCloud, Robot, System, Toolkit } from '@icon-park/react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -297,7 +300,7 @@ const AwaitingTelemetry: React.FC = () => (
   <div className='min-h-screen bg-slate-950 text-slate-300 flex items-center justify-center p-6 font-sans'>
     <div className='max-w-md text-center flex flex-col items-center gap-4'>
       <div className='flex items-center justify-center w-16 h-16 bg-slate-900 rd-full border-2 border-cyan-500/50'>
-        <Preview theme='outline' size='32' fill='var(--primary)' />
+        <System theme='outline' size='32' fill='var(--primary)' />
       </div>
       <h1 className='text-2xl font-bold text-slate-100'>THE EYE</h1>
       <p className='text-sm text-slate-400 font-mono'>Awaiting telemetry pipeline.</p>
@@ -367,7 +370,7 @@ const EyeDashboardImpl: React.FC = () => {
       <header className='flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 border-b border-slate-800 pb-4'>
         <div className='flex items-center gap-4'>
           <div className='relative flex items-center justify-center w-12 h-12 bg-slate-900 rd-full border-2 border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.3)]'>
-            <Preview theme='outline' size='24' fill={anomalyActive ? 'var(--danger)' : 'var(--primary)'} className={anomalyActive ? 'animate-pulse' : ''} />
+            <System theme='outline' size='24' fill={anomalyActive ? 'var(--danger)' : 'var(--primary)'} className={anomalyActive ? 'animate-pulse' : ''} />
             {anomalyActive && <div className='absolute inset-0 rd-full border border-danger animate-ping opacity-75' />}
           </div>
           <div>
@@ -399,7 +402,7 @@ const EyeDashboardImpl: React.FC = () => {
       <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 auto-rows-fr'>
         {/* 1 — Global SLI/SLO */}
         <div className='xl:col-span-1 md:col-span-2'>
-          <Card title='Global SLI / SLO' icon={Analysis}>
+          <Card title='Global SLI / SLO' icon={Info}>
             <div className='flex flex-col gap-4 mt-2'>
               {metrics.slo.map((slo) => (
                 <div key={slo.name}>
@@ -423,7 +426,7 @@ const EyeDashboardImpl: React.FC = () => {
         </div>
 
         {/* 2 — Network Path (MTR) */}
-        <Card title='Network Path (MTR)' icon={Network} status={networkStatus}>
+        <Card title='Network Path (MTR)' icon={LinkCloud} status={networkStatus}>
           <div className='flex flex-col gap-2 font-mono text-xs'>
             <div className='grid grid-cols-5 text-slate-500 border-b border-slate-800 pb-1'>
               <span>HOP</span>
@@ -444,7 +447,7 @@ const EyeDashboardImpl: React.FC = () => {
         </Card>
 
         {/* 3 — Infrastructure Saturation (PSI) */}
-        <Card title='Infra Saturation (PSI)' icon={Server} status={psiStatus}>
+        <Card title='Infra Saturation (PSI)' icon={Computer} status={psiStatus}>
           <div className='flex flex-col gap-4 mt-2'>
             <ProgressBar label='CPU pressure (some.avg10)' value={metrics.psi.cpuSome.toFixed(1)} max={20} barClass={metrics.psi.cpuSome > 10 ? 'bg-warning' : 'bg-cyan-500'} />
             <ProgressBar label='Memory pressure (full.avg10)' value={metrics.psi.memFull.toFixed(2)} max={10} barClass={metrics.psi.memFull > 2 ? 'bg-danger' : 'bg-success'} />
@@ -461,7 +464,7 @@ const EyeDashboardImpl: React.FC = () => {
         </Card>
 
         {/* 4 — Trace Anomaly Distribution */}
-        <Card title='Trace Anomaly (t-Dist)' icon={Pulse}>
+        <Card title='Trace Anomaly (t-Dist)' icon={Communication}>
           <div className='relative w-full h-32 bg-slate-950 rd-1 border border-slate-800 overflow-hidden'>
             <svg viewBox='0 0 100 100' preserveAspectRatio='none' className='absolute inset-0 w-full h-full opacity-30'>
               <path d='M 0,100 C 20,100 35,10 50,10 C 65,10 80,100 100,100' fill='none' stroke='#06b6d4' strokeWidth='2' />
@@ -516,9 +519,9 @@ const EyeDashboardImpl: React.FC = () => {
           <div className='flex flex-col gap-3 font-mono text-xs'>
             {(
               [
-                [Terminal, 'var(--primary)', 'Token Usage', metrics.mcp.tokens.toLocaleString(), 'text-cyan-200'],
-                [Protect, 'var(--success)', 'Safe Executions', String(metrics.mcp.actions), 'text-emerald-200'],
-                [Caution, 'var(--warning)', 'Blocked by Policy', String(metrics.mcp.blocked), 'text-yellow-200'],
+                [Toolkit, 'var(--primary)', 'Token Usage', metrics.mcp.tokens.toLocaleString(), 'text-cyan-200'],
+                [Info, 'var(--success)', 'Safe Executions', String(metrics.mcp.actions), 'text-emerald-200'],
+                [Info, 'var(--warning)', 'Blocked by Policy', String(metrics.mcp.blocked), 'text-yellow-200'],
               ] as const
             ).map(([Icon, iconFill, label, val, valCls]) => (
               <div key={label} className='flex justify-between items-center p-2 bg-slate-950 rd-1'>
@@ -534,7 +537,7 @@ const EyeDashboardImpl: React.FC = () => {
         </Card>
 
         {/* 7 — Network Devices */}
-        <Card title='Network Devices (SNMP/ARP)' icon={Wifi} status={flapCount > 0 ? 'warning' : 'normal'}>
+        <Card title='Network Devices (SNMP/ARP)' icon={LinkCloud} status={flapCount > 0 ? 'warning' : 'normal'}>
           <div className='flex flex-col gap-2 text-xs font-mono overflow-y-auto'>
             <div className='grid grid-cols-4 text-slate-500 border-b border-slate-800 pb-1'>
               <span>Device</span>
@@ -559,7 +562,7 @@ const EyeDashboardImpl: React.FC = () => {
 
         {/* 8 — ChatOps Incident Feed */}
         <div className='md:col-span-2 lg:col-span-3 xl:col-span-2'>
-          <Card title='ChatOps Incident Feed' icon={Comment} status={anomalyActive ? 'warning' : 'normal'}>
+          <Card title='ChatOps Incident Feed' icon={Communication} status={anomalyActive ? 'warning' : 'normal'}>
             <div className='flex flex-col gap-3 overflow-y-auto font-mono text-xs' style={{ maxHeight: 280 }}>
               {anomalyActive && (
                 <div className='bg-red-950/30 border border-danger rd-1 p-3 text-red-200 flex gap-3'>
@@ -584,7 +587,7 @@ const EyeDashboardImpl: React.FC = () => {
 
               {eventLog.map((ev) => (
                 <div key={ev.id} className='bg-slate-800/30 border border-slate-800 rd-1 p-3 text-slate-300 flex gap-3 opacity-80'>
-                  <Pulse theme='outline' size='16' fill='var(--warning)' className='flex-shrink-0 mt-0.5' />
+                  <Info theme='outline' size='16' fill='var(--warning)' className='flex-shrink-0 mt-0.5' />
                   <div>
                     <span className='text-warning font-bold'>[ANOMALY]</span>
                     <br />
