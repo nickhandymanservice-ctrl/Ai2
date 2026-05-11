@@ -471,7 +471,9 @@ const EyeDashboardImpl: React.FC = () => {
               <path d='M 50,10 C 70,10 80,80 100,90' fill='none' stroke='#f59e0b' strokeWidth='1' strokeDasharray='2,2' />
               <line x1='50' y1='10' x2='50' y2='100' stroke='#334155' strokeWidth='0.5' />
             </svg>
-            {scatterDots.map((dot) => <div key={dot.id} className={`absolute rd-full w-1.5 h-1.5 ${dot.isOutlier && anomalyActive ? 'bg-danger animate-ping' : dot.isOutlier ? 'bg-warning' : 'bg-cyan-500 opacity-60'}`} style={{ left: `${dot.left}%`, bottom: `${dot.bottom}%` }} />)}
+            {scatterDots.map((dot) => (
+              <div key={dot.id} className={`absolute rd-full w-1.5 h-1.5 ${dot.isOutlier && anomalyActive ? 'bg-danger animate-ping' : dot.isOutlier ? 'bg-warning' : 'bg-cyan-500 opacity-60'}`} style={{ left: `${dot.left}%`, bottom: `${dot.bottom}%` }} />
+            ))}
           </div>
           <div className='flex justify-between text-xs font-mono mt-3 text-slate-400'>
             <span>ν = 5 (heavy-tailed)</span>
